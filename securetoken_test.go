@@ -9,12 +9,27 @@ import (
 )
 
 var key = []byte("asdf;lkjasdf;lkj")
-var ttl = 1 * time.Hour
+var ttl = 1 * time.Minute
+
+// setNow sets timeNow to a function that always returns t.
+func setNow(t time.Time) {
+	timeNow = func() time.Time {
+		return t
+	}
+}
+
+// restoreNow sets timeNow to time.Now.
+func restoreNow() {
+	timeNow = time.Now
+}
 
 // TestEncodeDecode tests that Decode(Encode(data)) == data,
 // and that tokens are the expected length.
 func TestEncodeDecode(t *testing.T) {
 	t.Parallel()
+
+	setNow(time.Unix(1, 0))
+	defer restoreNow()
 
 	datas := []string{
 		"",
@@ -50,31 +65,34 @@ func TestEncodeDecode(t *testing.T) {
 	}
 }
 
-// TestDeocdeValidTokens tests that valid tokens produced by this
+// TestDecodeValidTokens tests that valid tokens produced by this
 // package will always be able to be decoded. Existing test cases
 // should not be removed or edited unless there is a need to make
 // a breaking change to the package.
 func TestDecodeValidTokens(t *testing.T) {
 	t.Parallel()
 
+	setNow(time.Unix(1, 0))
+	defer restoreNow()
+
 	testCases := []struct {
 		token string
 		data  string
 	}{
 		{
-			token: "rnWzAzA6QUOltrGIl6nFQz6tO-saEm0-bEsWKQ==",
+			token: "Fk6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ==",
 			data:  "",
 		},
 		{
-			token: "T4PTHsKHCYvIQI8szMrJJnzzKn-aNGIwSj5sx0k=",
+			token: "DcbLhR3J-FZOWEE_zLrjAW3rfirHGIriSRoc2ew=",
 			data:  " ",
 		},
 		{
-			token: "e2ygIX9JTdo0munKnYydKfhe50EsQfUnznqj-eTZOPem",
+			token: "TnXd8Ay-FMVXf5WWlK3VtXXh8yDrIWJG407BFzy5U92h",
 			data:  "12345",
 		},
 		{
-			token: "VeVYa0-hM0DTNrADwHj9omo2pcLmI-G5xVZGh2WmJ9R9jahpcJ-vGxag3IA9MFtQQ9BVTg==",
+			token: "Wt8efk0c7-QuQwJ_uLXhndt7W6jnbHdxsyj49sUI-aP95L7UuP6aFWGc2eXfGa8Vk5kVsQ==",
 			data:  "a.person@some.domain.com",
 		},
 	}
@@ -97,6 +115,28 @@ func TestDecodeValidTokens(t *testing.T) {
 	}
 }
 
-// TODO: test decode expired token
+// TestDecodeExpiredToken tests that Decode returns errTokenExpired
+// if the token is older than its ttl.
+func TestDecodeExpiredToken(t *testing.T) {
+	t.Parallel()
+
+	setNow(time.Unix(1, 0))
+	defer restoreNow()
+
+	tc, err := NewTranscoder(key, ttl, sha1.New, aes.NewCipher)
+	data := []byte("data")
+	token, err := tc.Encode(data)
+	if err != nil {
+		t.Fatalf("Encode(%s) returned non-nil error: %s", data, err)
+	}
+
+	setNow(timeNow().Add(ttl + 1*time.Nanosecond))
+
+	decodedData, err := tc.Decode(token)
+	if decodedData != nil || err != errTokenExpired {
+		t.Fatalf("Decode(%s) returned %s,%s; expected nil,%s", token, decodedData, err, errTokenExpired)
+	}
+}
+
 // TODO: test decode token with invalid signature
 // TODO: test decode invalid token

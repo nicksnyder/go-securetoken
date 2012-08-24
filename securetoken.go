@@ -64,7 +64,7 @@ func NewTranscoder(key []byte, ttl time.Duration, hashFunc HashFunc, cipherFunc 
 // Encode encodes data into a secure token of the following format:
 // Base64Encode(Encrypt(HMAC(timestamp + data) + timestamp + data))
 func (t *Transcoder) Encode(data []byte) (string, error) {
-	now := timeNow().Unix()
+	now := timeNow().UnixNano()
 	h := hmac.New(t.hashFunc, t.key)
 	hashSize := h.Size()
 
@@ -93,9 +93,14 @@ func (t *Transcoder) Encode(data []byte) (string, error) {
 	return base64.URLEncoding.EncodeToString(ciphertext.Bytes()), nil
 }
 
+var (
+	errTokenInvalid = errors.New("securetoken: token invalid")
+	errTokenExpired = errors.New("securetoken: token expired")
+)
+
 // Decode returns the data encoded in token.
 // It returns an error if token is invalid
-// or if token was issued more than t.ttl ago.
+// or if token is older than its ttl.
 func (t *Transcoder) Decode(token string) ([]byte, error) {
 	// Decode the token.
 	ciphertext, err := base64.URLEncoding.DecodeString(token)
@@ -124,12 +129,12 @@ func (t *Transcoder) Decode(token string) ([]byte, error) {
 	// Verify the signature.
 	h.Write(plaintext[hashSize:])
 	if !bytes.Equal(sig, h.Sum(nil)) {
-		return nil, errors.New("securetoken: token invalid")
+		return nil, errTokenInvalid
 	}
 
 	// Verify the timestamp.
-	if time.Now().Add(-t.ttl).Unix() > ts {
-		return nil, errors.New("securetoken: token expired")
+	if timeNow().Add(-t.ttl).UnixNano() > ts {
+		return nil, errTokenExpired
 	}
 
 	return data, nil
