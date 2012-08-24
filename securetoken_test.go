@@ -138,5 +138,36 @@ func TestDecodeExpiredToken(t *testing.T) {
 	}
 }
 
-// TODO: test decode token with invalid signature
-// TODO: test decode invalid token
+// TestDecodeInvalidToken tests that Decode returns
+// errTokenInvalid for invalid tokens.
+func TestDecodeInvalidToken(t *testing.T) {
+	t.Parallel()
+
+	setNow(time.Unix(1, 0))
+	defer restoreNow()
+
+	tc, err := NewTranscoder(key, ttl, sha1.New, aes.NewCipher)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	tokens := []string{
+		"",
+		" ",
+		base64.URLEncoding.EncodeToString([]byte(" ")),
+		"asdf",
+		"fk6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ==",
+		" Fk6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ==",
+		"Fk6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ== ",
+		"k6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ==",
+	}
+	for _, token := range tokens {
+		data, err := tc.Decode(token)
+		if data != nil || err == nil {
+			t.Errorf("Decode(%s) returned %s,%s; expected nil,non-nil", token, data, err)
+			continue
+		}
+	}
+}
+
+// TODO: test different keys

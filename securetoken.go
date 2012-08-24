@@ -108,6 +108,13 @@ func (t *Transcoder) Decode(token string) ([]byte, error) {
 		return nil, err
 	}
 
+	// Verify size of token.
+	h := hmac.New(t.hashFunc, t.key)
+	hashSize := h.Size()
+	if len(ciphertext) < hashSize+8 {
+		return nil, errTokenInvalid
+	}
+
 	// Decrypt the ciphertext.
 	r := cipher.StreamReader{
 		S: cipher.NewCFBDecrypter(t.block, t.iv),
@@ -117,9 +124,6 @@ func (t *Transcoder) Decode(token string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	h := hmac.New(t.hashFunc, t.key)
-	hashSize := h.Size()
 
 	// Unpack the token data.
 	sig := plaintext[:hashSize]
