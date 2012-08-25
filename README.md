@@ -46,5 +46,6 @@ Short snippet:
 	}
 
 Complete example:
+
 	cd example/
 	go run main.go
