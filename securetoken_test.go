@@ -158,7 +158,7 @@ func TestDecodeInvalidToken(t *testing.T) {
 		"asdf",
 		"fk6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ==",
 		" Fk6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ==",
-		"Fk6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ== ",
+		"Fk6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ==   ",
 		"k6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ==",
 	}
 	for _, token := range tokens {
