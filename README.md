@@ -43,7 +43,7 @@ Short snippet:
 			panic(err)
 		}
 
-		fmt.Printf("data: %s", data)
+		fmt.Printf("data: %s\n", data)
 	}
 
 Complete example:
