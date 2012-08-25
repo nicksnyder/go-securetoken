@@ -21,6 +21,7 @@ Short snippet:
 		"crypto/aes"
 		"crypto/sha1"
 		"fmt"
+		"time"
 
 		"github.com/nicksnyder/go-securetoken/securetoken"
 	)
