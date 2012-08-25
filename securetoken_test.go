@@ -2,6 +2,8 @@ package securetoken
 
 import (
 	"crypto/aes"
+	"crypto/des"
+	"crypto/md5"
 	"crypto/sha1"
 	"encoding/base64"
 	"testing"
@@ -170,4 +172,47 @@ func TestDecodeInvalidToken(t *testing.T) {
 	}
 }
 
-// TODO: test different keys
+var benchmarkData = []byte("firstname.lastname@example.com")
+
+func BenchmarkAESWithMD5(b *testing.B) {
+	key := []byte("1111111122222222")
+	doBenchmark(b, key, md5.New, aes.NewCipher)
+}
+
+func BenchmarkAESWithSHA1(b *testing.B) {
+	key := []byte("1111111122222222")
+	doBenchmark(b, key, sha1.New, aes.NewCipher)
+}
+
+func BenchmarkDESWithMD5(b *testing.B) {
+	key := []byte("12345678")
+	doBenchmark(b, key, md5.New, des.NewCipher)
+}
+
+func BenchmarkDESWithSHA1(b *testing.B) {
+	key := []byte("12345678")
+	doBenchmark(b, key, sha1.New, des.NewCipher)
+}
+
+func BenchmarkTripleDESWithMD5(b *testing.B) {
+	key := []byte("111111112222222233333333")
+	doBenchmark(b, key, md5.New, des.NewTripleDESCipher)
+}
+
+func BenchmarkTripleDESWithSHA1(b *testing.B) {
+	key := []byte("111111112222222233333333")
+	doBenchmark(b, key, sha1.New, des.NewTripleDESCipher)
+}
+
+func doBenchmark(b *testing.B, key []byte, hashFunc HashFunc, cipherFunc CipherFunc) {
+	tc, err := NewTranscoder(key, ttl, hashFunc, cipherFunc)
+	if err != nil {
+		b.Fatal(err.Error())
+	}
+
+	for i := 0; i < b.N; i++ {
+		if _, err := tc.Encode(benchmarkData); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
