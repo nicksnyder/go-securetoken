@@ -14,6 +14,7 @@ Example
 =======
 
 Short snippet:
+	
 	package main
 
 	import (
