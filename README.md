@@ -13,5 +13,37 @@ Installation
 Example
 =======
 
+Short snippet:
+	package main
+
+	import (
+		"crypto/aes"
+		"crypto/sha1"
+		"fmt"
+
+		"github.com/nicksnyder/go-securetoken/securetoken"
+	)
+
+	func main() {
+		key := []byte("1234567887654321")
+		transcoder, err := securetoken.NewTranscoder(key, 24*time.Hour, sha1.New, aes.NewCipher)
+		if err != nil {
+			panic(err)
+		}
+
+		token, err := transcoder.Encode([]byte("secretuserid"))
+		if err != nil {
+			panic(err)
+		}
+
+		data, err := transcoder.Decode(token)
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Printf("data: %s", data)
+	}
+
+Complete example:
 	cd example/
 	go run main.go
