@@ -10,7 +10,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"hash"
-	"io/ioutil"
 	"time"
 )
 
@@ -70,27 +69,23 @@ func (t *Transcoder) Encode(data []byte) (string, error) {
 
 	// Prepare a buffer than can fit the signature,
 	// a timestamp, and data (in that order).
-	plaintext := make([]byte, hashSize+8+len(data))
+	token := make([]byte, hashSize+8+len(data))
 
 	// Populate the buffer with the timestamp and data.
-	binary.LittleEndian.PutUint64(plaintext[hashSize:], uint64(now))
-	copy(plaintext[hashSize+8:], data)
+	binary.LittleEndian.PutUint64(token[hashSize:], uint64(now))
+	copy(token[hashSize+8:], data)
 
 	// Compute the signature of the timestamp and data
-	// and place it at the beginning of the plaintext buffer.
-	h.Write(plaintext[hashSize:])
-	copy(plaintext, h.Sum(nil))
+	// and place it at the beginning of the token buffer.
+	h.Write(token[hashSize:])
+	copy(token, h.Sum(nil))
 
-	// Encrypt the plaintext.
-	var ciphertext bytes.Buffer
-	w := cipher.StreamWriter{
-		S: cipher.NewCFBEncrypter(t.block, t.iv),
-		W: &ciphertext,
-	}
-	w.Write(plaintext)
+	// Encrypt the token.
+	stream := cipher.NewCFBEncrypter(t.block, t.iv)
+	stream.XORKeyStream(token, token)
 
-	// Return the encoded ciphertext.
-	return base64.URLEncoding.EncodeToString(ciphertext.Bytes()), nil
+	// Return the encoded token.
+	return base64.URLEncoding.EncodeToString(token), nil
 }
 
 var (
@@ -103,35 +98,29 @@ var (
 // or if token is older than its ttl.
 func (t *Transcoder) Decode(token string) ([]byte, error) {
 	// Decode the token.
-	ciphertext, err := base64.URLEncoding.DecodeString(token)
+	tok, err := base64.URLEncoding.DecodeString(token)
 	if err != nil {
 		return nil, err
 	}
 
-	// Verify size of token.
+	// Verify token is at least the minimum size.
 	h := hmac.New(t.hashFunc, t.key)
 	hashSize := h.Size()
-	if len(ciphertext) < hashSize+8 {
+	if len(tok) < hashSize+8 {
 		return nil, errTokenInvalid
 	}
 
-	// Decrypt the ciphertext.
-	r := cipher.StreamReader{
-		S: cipher.NewCFBDecrypter(t.block, t.iv),
-		R: bytes.NewReader(ciphertext),
-	}
-	plaintext, err := ioutil.ReadAll(r)
-	if err != nil {
-		return nil, err
-	}
+	// Decrypt the token.
+	stream := cipher.NewCFBDecrypter(t.block, t.iv)
+	stream.XORKeyStream(tok, tok)
 
 	// Unpack the token data.
-	sig := plaintext[:hashSize]
-	ts := int64(binary.LittleEndian.Uint64(plaintext[hashSize:]))
-	data := plaintext[hashSize+8:]
+	sig := tok[:hashSize]
+	ts := int64(binary.LittleEndian.Uint64(tok[hashSize:]))
+	data := tok[hashSize+8:]
 
 	// Verify the signature.
-	h.Write(plaintext[hashSize:])
+	h.Write(tok[hashSize:])
 	if !bytes.Equal(sig, h.Sum(nil)) {
 		return nil, errTokenInvalid
 	}
