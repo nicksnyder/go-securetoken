@@ -46,11 +46,12 @@ func TestEncodeDecode(t *testing.T) {
 	}
 	for _, data := range datas {
 		token, err := tc.Encode([]byte(data))
+		//t.Errorf("encoded %s to %s (%d)", data, token, len(token))
 		if err != nil {
 			t.Errorf("Encode(%s) returned non-nil error: %s", data, err)
 			continue
 		}
-		if expectedLength := base64.URLEncoding.EncodedLen(sha1.Size + 8 + len(data)); len(token) != expectedLength {
+		if expectedLength := base64.URLEncoding.EncodedLen(aes.BlockSize + sha1.Size + 8 + len(data)); len(token) != expectedLength {
 			t.Errorf("Encode(%s) returned %s. Expected token with length %d; got %d",
 				data, token, expectedLength, len(token))
 			continue
@@ -68,9 +69,8 @@ func TestEncodeDecode(t *testing.T) {
 }
 
 // TestDecodeValidTokens tests that valid tokens produced by this
-// package will always be able to be decoded. Existing test cases
-// should not be removed or edited unless there is a need to make
-// a breaking change to the package.
+// package can be decoded. If this test fails, it means tokens
+// encoded by an older version of ths package can no longer be decoded.
 func TestDecodeValidTokens(t *testing.T) {
 	t.Parallel()
 
@@ -82,19 +82,19 @@ func TestDecodeValidTokens(t *testing.T) {
 		data  string
 	}{
 		{
-			token: "Fk6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ==",
+			token: "px0GhLK4yQHRiII8QEFmV6RaTuXxMDZ1LiThaptWLjMtx9TpHunTX7yC3gk=",
 			data:  "",
 		},
 		{
-			token: "DcbLhR3J-FZOWEE_zLrjAW3rfirHGIriSRoc2ew=",
+			token: "NV33kCx0vx--0eeItcnVAZxiFyDkMSwXX71HEZd5NoClsBzM7vk3cFPs23Gp",
 			data:  " ",
 		},
 		{
-			token: "TnXd8Ay-FMVXf5WWlK3VtXXh8yDrIWJG407BFzy5U92h",
+			token: "czRPi99S3bP8jhLzaIge80HOKIOMq1khjSDHhcE_C0r8B0rqso476NalP41GgKt5PQ==",
 			data:  "12345",
 		},
 		{
-			token: "Wt8efk0c7-QuQwJ_uLXhndt7W6jnbHdxsyj49sUI-aP95L7UuP6aFWGc2eXfGa8Vk5kVsQ==",
+			token: "0I1Du8SIF-Img-93k2HcbXiwHw-xFoEgxNTZoGcUiYL-bKkBga6gmeNrd3UxvD4QXCNtMGCWvQMOZ_f08hKV-s6V0cQ=",
 			data:  "a.person@some.domain.com",
 		},
 	}
@@ -136,7 +136,7 @@ func TestDecodeExpiredToken(t *testing.T) {
 
 	decodedData, err := tc.Decode(token)
 	if decodedData != nil || err != errTokenExpired {
-		t.Fatalf("Decode(%s) returned %s,%s; expected nil,%s", token, decodedData, err, errTokenExpired)
+		t.Fatalf("Decode(%s) returned '%s', %s; expected '', %s", token, decodedData, err, errTokenExpired)
 	}
 }
 

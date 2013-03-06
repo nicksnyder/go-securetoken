@@ -6,10 +6,12 @@ import (
 	"bytes"
 	"crypto/cipher"
 	"crypto/hmac"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"hash"
+	"io"
 	"time"
 )
 
@@ -23,7 +25,6 @@ type Transcoder struct {
 	ttl      time.Duration
 	hashFunc HashFunc
 	block    cipher.Block
-	iv       []byte
 }
 
 // CipherFunc returns a new cipher.Block
@@ -31,58 +32,60 @@ type Transcoder struct {
 // For example: aes.NewCipher, des.NewCipher
 type CipherFunc func(key []byte) (cipher.Block, error)
 
-// HashFunc returns a new hash.Hash.
-// It should not return a HMAC hash.
+// HashFunc returns a new hash.Hash that will be used to create a HMAC.
 type HashFunc func() hash.Hash
 
 // NewTranscoder returns a new Transcoder.
 // key is the cryptographic key used to encrypt and sign token data.
 // ttl is the duration after which an issued token becomes invalid.
-// hashFunc is the hash function that is used in conjunction with HMAC to sign token data.
+// hashFunc is the hash function used to create a HMAC of the token data.
 // cipherFunc is the cipher function used to encrypt and decrypt token data.
 func NewTranscoder(key []byte, ttl time.Duration, hashFunc HashFunc, cipherFunc CipherFunc) (*Transcoder, error) {
 	block, err := cipherFunc(key)
 	if err != nil {
 		return nil, err
 	}
-	// Always use an empty initialization vector.
-	// Reusing an IV in CFB mode leaks some information about the first block of plaintext,
-	// and about any common prefix shared by two plaintexts.
-	// In this case, the first block of plaintext is the HMAC of the token data,
-	// which is harmless to leak, and it ensures that no two plaintexts will have the same prefix.
-	iv := make([]byte, block.BlockSize())
 	return &Transcoder{
 		key:      key,
 		ttl:      ttl,
 		hashFunc: hashFunc,
 		block:    block,
-		iv:       iv,
 	}, nil
 }
 
 // Encode encodes data into a secure token of the following format:
-// Base64Encode(Encrypt(HMAC(timestamp + data) + timestamp + data))
+// Base64Encode(iv + Encrypt(HMAC(timestamp + data) + timestamp + data))
 func (t *Transcoder) Encode(data []byte) (string, error) {
-	now := timeNow().UnixNano()
+	ivSize := t.block.BlockSize()
 	h := hmac.New(t.hashFunc, t.key)
-	hashSize := h.Size()
+	macSize := h.Size()
 
-	// Prepare a buffer than can fit the signature,
-	// a timestamp, and data (in that order).
-	token := make([]byte, hashSize+8+len(data))
+	// Prepare a buffer than can fit the iv, mac,
+	// timestamp, and data (in that order).
+	token := make([]byte, ivSize+macSize+8+len(data))
 
-	// Populate the buffer with the timestamp and data.
-	binary.LittleEndian.PutUint64(token[hashSize:], uint64(now))
-	copy(token[hashSize+8:], data)
+	// Generate the iv.
+	iv := token[:ivSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return "", err
+	}
 
-	// Compute the signature of the timestamp and data
-	// and place it at the beginning of the token buffer.
-	h.Write(token[hashSize:])
-	copy(token, h.Sum(nil))
+	// Set the timestamp.
+	ts := token[ivSize+macSize : ivSize+macSize+8]
+	now := timeNow().UnixNano()
+	binary.LittleEndian.PutUint64(ts, uint64(now))
 
-	// Encrypt the token.
-	stream := cipher.NewCFBEncrypter(t.block, t.iv)
-	stream.XORKeyStream(token, token)
+	// Set the data.
+	copy(token[ivSize+macSize+8:], data)
+
+	// Compute the HMAC of the timestamp and data.
+	h.Write(token[ivSize+macSize:])
+	h.Sum(token[ivSize:ivSize])
+
+	// Encrypt the token (excluding the iv).
+	plaintext := token[ivSize:]
+	stream := cipher.NewCFBEncrypter(t.block, iv)
+	stream.XORKeyStream(plaintext, plaintext)
 
 	// Return the encoded token.
 	return base64.URLEncoding.EncodeToString(token), nil
@@ -94,34 +97,40 @@ var (
 )
 
 // Decode returns the data encoded in token.
-// It returns an error if token is invalid
-// or if token is older than its ttl.
+// It returns an error if token is invalid or if token is older than its ttl.
 func (t *Transcoder) Decode(token string) ([]byte, error) {
 	// Decode the token.
-	tok, err := base64.URLEncoding.DecodeString(token)
+	ivct, err := base64.URLEncoding.DecodeString(token)
 	if err != nil {
 		return nil, err
 	}
 
 	// Verify token is at least the minimum size.
+	ivSize := t.block.BlockSize()
 	h := hmac.New(t.hashFunc, t.key)
-	hashSize := h.Size()
-	if len(tok) < hashSize+8 {
+	macSize := h.Size()
+	if len(ivct) < ivSize+macSize+8 {
 		return nil, errTokenInvalid
 	}
 
-	// Decrypt the token.
-	stream := cipher.NewCFBDecrypter(t.block, t.iv)
-	stream.XORKeyStream(tok, tok)
+	// Unpack the iv and ciphertext.
+	iv := ivct[:ivSize]
+	ciphertext := ivct[ivSize:]
+
+	// Decrypt the ciphertext.
+	stream := cipher.NewCFBDecrypter(t.block, iv)
+	stream.XORKeyStream(ciphertext, ciphertext)
+	plaintext := ciphertext
 
 	// Unpack the token data.
-	sig := tok[:hashSize]
-	ts := int64(binary.LittleEndian.Uint64(tok[hashSize:]))
-	data := tok[hashSize+8:]
+	mac := plaintext[:macSize]
+	ts := int64(binary.LittleEndian.Uint64(plaintext[macSize : macSize+8]))
+	data := plaintext[macSize+8:]
 
-	// Verify the signature.
-	h.Write(tok[hashSize:])
-	if !bytes.Equal(sig, h.Sum(nil)) {
+	// Compute the HMAC of the timestamp and data and verify
+	// that it matches the mac in the token.
+	h.Write(plaintext[macSize:])
+	if !bytes.Equal(mac, h.Sum(nil)) {
 		return nil, errTokenInvalid
 	}
 
