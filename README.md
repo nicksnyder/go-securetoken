@@ -1,7 +1,7 @@
 securetoken
 ===========
 
-Package securetoken implements cryptographically secure tokens that provide data confidentiality and integrity.
+Package securetoken implements cryptographically secure tokens that provide data confidentiality, integrity, and expiration.
 
 A useful application is to use securetoken to issue session cookies.
 
@@ -28,17 +28,17 @@ Short snippet:
 
 	func main() {
 		key := []byte("1234567887654321")
-		transcoder, err := securetoken.NewTranscoder(key, 24*time.Hour, sha1.New, aes.NewCipher)
+		tokener, err := securetoken.NewTokener(key, 24*time.Hour, sha1.New, aes.NewCipher)
 		if err != nil {
 			panic(err)
 		}
 
-		token, err := transcoder.Encode([]byte("secretuserid"))
+		token, err := tokener.Encode([]byte("secretuserid"))
 		if err != nil {
 			panic(err)
 		}
 
-		data, err := transcoder.Decode(token)
+		data, err := tokener.Decode(token)
 		if err != nil {
 			panic(err)
 		}

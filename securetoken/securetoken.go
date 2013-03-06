@@ -1,5 +1,5 @@
 // Package securetoken implements cryptographically secure tokens
-// that provide data confidentiality and integrity.
+// that provide data confidentiality, integrity, and expiration.
 package securetoken
 
 import (
@@ -18,9 +18,9 @@ import (
 // Alias time.Now for testability.
 var timeNow = time.Now
 
-// A Transcoder encodes and decodes tokens.
+// A Tokener encodes and decodes tokens.
 // It is goroutine safe.
-type Transcoder struct {
+type Tokener struct {
 	key      []byte
 	ttl      time.Duration
 	hashFunc HashFunc
@@ -35,17 +35,17 @@ type CipherFunc func(key []byte) (cipher.Block, error)
 // HashFunc returns a new hash.Hash that will be used to create a HMAC.
 type HashFunc func() hash.Hash
 
-// NewTranscoder returns a new Transcoder.
+// NewTokener returns a new Tokener.
 // key is the cryptographic key used to encrypt and sign token data.
 // ttl is the duration after which an issued token becomes invalid.
 // hashFunc is the hash function used to create a HMAC of the token data.
 // cipherFunc is the cipher function used to encrypt and decrypt token data.
-func NewTranscoder(key []byte, ttl time.Duration, hashFunc HashFunc, cipherFunc CipherFunc) (*Transcoder, error) {
+func NewTokener(key []byte, ttl time.Duration, hashFunc HashFunc, cipherFunc CipherFunc) (*Tokener, error) {
 	block, err := cipherFunc(key)
 	if err != nil {
 		return nil, err
 	}
-	return &Transcoder{
+	return &Tokener{
 		key:      key,
 		ttl:      ttl,
 		hashFunc: hashFunc,
@@ -55,7 +55,7 @@ func NewTranscoder(key []byte, ttl time.Duration, hashFunc HashFunc, cipherFunc 
 
 // Encode encodes data into a secure token of the following format:
 // Base64Encode(iv + Encrypt(HMAC(timestamp + data) + timestamp + data))
-func (t *Transcoder) Encode(data []byte) (string, error) {
+func (t *Tokener) Encode(data []byte) (string, error) {
 	ivSize := t.block.BlockSize()
 	h := hmac.New(t.hashFunc, t.key)
 	macSize := h.Size()
@@ -98,7 +98,7 @@ var (
 
 // Decode returns the data encoded in token.
 // It returns an error if token is invalid or if token is older than its ttl.
-func (t *Transcoder) Decode(token string) ([]byte, error) {
+func (t *Tokener) Decode(token string) ([]byte, error) {
 	// Decode the token.
 	ivct, err := base64.URLEncoding.DecodeString(token)
 	if err != nil {

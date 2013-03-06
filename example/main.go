@@ -12,7 +12,7 @@ import (
 )
 
 var unsafeKey = []byte("1234567887654321")
-var transcoder *securetoken.Transcoder
+var tokener *securetoken.Tokener
 var cookieName = "session"
 
 func main() {
@@ -21,12 +21,12 @@ func main() {
 	http.HandleFunc("/logout", handleLogout)
 
 	var err error
-	transcoder, err = securetoken.NewTranscoder(unsafeKey, 24*time.Hour, sha1.New, aes.NewCipher)
+	tokener, err = securetoken.NewTokener(unsafeKey, 24*time.Hour, sha1.New, aes.NewCipher)
 	if err != nil {
 		panic(err)
 	}
 
-	log.Println("Listening on port :8080")
+	log.Println("Demo running at http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
@@ -57,7 +57,7 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 		homeTemplate.Execute(w, nil)
 		return
 	}
-	email, err := transcoder.Decode(c.Value)
+	email, err := tokener.Decode(c.Value)
 	if err != nil {
 		panic(err)
 	}
@@ -69,7 +69,7 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	email := r.FormValue("email")
-	token, err := transcoder.Encode([]byte(email))
+	token, err := tokener.Encode([]byte(email))
 	if err != nil {
 		panic(err)
 	}

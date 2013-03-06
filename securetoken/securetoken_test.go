@@ -40,7 +40,7 @@ func TestEncodeDecode(t *testing.T) {
 		"a.person@some.domain.com",
 	}
 
-	tc, err := NewTranscoder(key, ttl, sha1.New, aes.NewCipher)
+	tc, err := NewTokener(key, ttl, sha1.New, aes.NewCipher)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -99,7 +99,7 @@ func TestDecodeValidTokens(t *testing.T) {
 		},
 	}
 
-	tc, err := NewTranscoder(key, ttl, sha1.New, aes.NewCipher)
+	tc, err := NewTokener(key, ttl, sha1.New, aes.NewCipher)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -125,7 +125,7 @@ func TestDecodeExpiredToken(t *testing.T) {
 	setNow(time.Unix(1, 0))
 	defer restoreNow()
 
-	tc, err := NewTranscoder(key, ttl, sha1.New, aes.NewCipher)
+	tc, err := NewTokener(key, ttl, sha1.New, aes.NewCipher)
 	data := []byte("data")
 	token, err := tc.Encode(data)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestDecodeInvalidToken(t *testing.T) {
 	setNow(time.Unix(1, 0))
 	defer restoreNow()
 
-	tc, err := NewTranscoder(key, ttl, sha1.New, aes.NewCipher)
+	tc, err := NewTokener(key, ttl, sha1.New, aes.NewCipher)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -205,7 +205,7 @@ func BenchmarkTripleDESWithSHA1(b *testing.B) {
 }
 
 func doBenchmark(b *testing.B, key []byte, hashFunc HashFunc, cipherFunc CipherFunc) {
-	tc, err := NewTranscoder(key, ttl, hashFunc, cipherFunc)
+	tc, err := NewTokener(key, ttl, hashFunc, cipherFunc)
 	if err != nil {
 		b.Fatal(err.Error())
 	}
