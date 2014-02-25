@@ -3,7 +3,6 @@
 package securetoken
 
 import (
-	"bytes"
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
