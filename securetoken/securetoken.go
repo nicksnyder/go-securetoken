@@ -130,7 +130,7 @@ func (t *Tokener) Decode(token string) ([]byte, error) {
 	// Compute the HMAC of the timestamp and data and verify
 	// that it matches the mac in the token.
 	h.Write(plaintext[macSize:])
-	if !bytes.Equal(mac, h.Sum(nil)) {
+	if !hmac.Equal(mac, h.Sum(nil)) {
 		return nil, errTokenInvalid
 	}
 
