@@ -1,4 +1,4 @@
-securetoken
+securetoken [![Build Status](https://secure.travis-ci.org/nicksnyder/go-securetoken.png?branch=master)](http://travis-ci.org/nicksnyder/go-securetoken)
 ===========
 
 Package securetoken implements cryptographically secure tokens that provide data confidentiality, integrity, and expiration.
