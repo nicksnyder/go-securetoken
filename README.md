@@ -1,17 +1,17 @@
 securetoken [![Build Status](https://secure.travis-ci.org/nicksnyder/go-securetoken.png?branch=master)](http://travis-ci.org/nicksnyder/go-securetoken)
 ===========
 
-Package securetoken implements cryptographically secure tokens that provide data confidentiality, integrity, and expiration.
+Package securetoken implements web-safe cryptographically secure tokens that provide data confidentiality, integrity, and expiration.
 
 A useful application is to use securetoken to issue session cookies.
 
 Installation
-============
+------------
 
-	go get -u github.com/nicksnyder/go-securetoken/securetoken
+    go get -u github.com/nicksnyder/go-securetoken/securetoken
 
 Example
-=======
+-------
 
 Short snippet:
 	
