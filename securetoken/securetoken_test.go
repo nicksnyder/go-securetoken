@@ -1,10 +1,6 @@
 package securetoken
 
 import (
-	"crypto/aes"
-	"crypto/des"
-	"crypto/md5"
-	"crypto/sha1"
 	"encoding/base64"
 	"testing"
 	"time"
@@ -25,11 +21,9 @@ func restoreNow() {
 	timeNow = time.Now
 }
 
-// TestEncodeDecode tests that Decode(Encode(data)) == data,
+// TestSealUnseal tests that Unseal(Seal(data)) == data,
 // and that tokens are the expected length.
-func TestEncodeDecode(t *testing.T) {
-	t.Parallel()
-
+func TestSealUnseal(t *testing.T) {
 	setNow(time.Unix(1, 0))
 	defer restoreNow()
 
@@ -40,117 +34,108 @@ func TestEncodeDecode(t *testing.T) {
 		"a.person@some.domain.com",
 	}
 
-	tc, err := NewTokener(key, ttl, sha1.New, aes.NewCipher)
+	tok, err := NewTokener(key, ttl)
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatal(err)
 	}
 	for _, data := range datas {
-		token, err := tc.Encode([]byte(data))
-		//t.Errorf("encoded %s to %s (%d)", data, token, len(token))
+		sealed, err := tok.Seal([]byte(data))
+		t.Logf("Seal(%q) = %q (%d)", data, sealed, len(sealed))
 		if err != nil {
-			t.Errorf("Encode(%s) returned non-nil error: %s", data, err)
+			t.Errorf("Seal(%q) returned non-nil error: %s", data, err)
 			continue
 		}
-		if expectedLength := base64.URLEncoding.EncodedLen(aes.BlockSize + sha1.Size + 8 + len(data)); len(token) != expectedLength {
-			t.Errorf("Encode(%s) returned %s. Expected token with length %d; got %d",
-				data, token, expectedLength, len(token))
+		if expectedLength := tok.sealedLength([]byte(data), true); len(sealed) != expectedLength {
+			t.Errorf("Seal(%q) = %q. Expected token with length %d; got %d",
+				data, sealed, expectedLength, len(sealed))
 			continue
 		}
-		decodedData, err := tc.Decode(token)
+		unsealed, err := tok.Unseal(sealed)
 		if err != nil {
-			t.Errorf("Decode(%s) returned non-nil error: %s", token, err)
+			t.Errorf("Unseal(%q) returned non-nil error: %s", sealed, err)
 			continue
 		}
-		if data != string(decodedData) {
-			t.Errorf("Decode(%s) returned %s; expected %s", token, decodedData, data)
+		if data != string(unsealed) {
+			t.Errorf("Unseal(%q) = %q; expected %q", sealed, unsealed, data)
 			continue
 		}
 	}
 }
 
-// TestDecodeValidTokens tests that valid tokens produced by this
-// package can be decoded. If this test fails, it means tokens
-// encoded by an older version of ths package can no longer be decoded.
-func TestDecodeValidTokens(t *testing.T) {
-	t.Parallel()
-
+// TestUnsealValidTokens tests that valid tokens produced by this package can be decoded.
+func TestUnsealValidTokens(t *testing.T) {
 	setNow(time.Unix(1, 0))
 	defer restoreNow()
 
-	testCases := []struct {
+	tests := []struct {
 		token string
 		data  string
 	}{
 		{
-			token: "px0GhLK4yQHRiII8QEFmV6RaTuXxMDZ1LiThaptWLjMtx9TpHunTX7yC3gk=",
+			token: "AQDKmjsAAAAA5yF0EaWXLsMNUjCEThRXMjvuAyE=",
 			data:  "",
 		},
 		{
-			token: "NV33kCx0vx--0eeItcnVAZxiFyDkMSwXX71HEZd5NoClsBzM7vk3cFPs23Gp",
+			token: "AQDKmjsAAAAAuHPqvAEhIbhFTAnoV9FO2ssx1loQ",
 			data:  " ",
 		},
 		{
-			token: "czRPi99S3bP8jhLzaIge80HOKIOMq1khjSDHhcE_C0r8B0rqso476NalP41GgKt5PQ==",
+			token: "AQDKmjsAAAAAorCoXLyLJICy5gpkshgrXDuTYlgHcm9DpQ==",
 			data:  "12345",
 		},
 		{
-			token: "0I1Du8SIF-Img-93k2HcbXiwHw-xFoEgxNTZoGcUiYL-bKkBga6gmeNrd3UxvD4QXCNtMGCWvQMOZ_f08hKV-s6V0cQ=",
+			token: "AQDKmjsAAAAApdi9pQK6lonfoHfRqerYW1B-EN8OYBh5JF500nNgJcbdJtuNzMN0IHyPMbM=",
 			data:  "a.person@some.domain.com",
 		},
 	}
 
-	tc, err := NewTokener(key, ttl, sha1.New, aes.NewCipher)
+	tok, err := NewTokener(key, ttl)
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatal(err)
 	}
 
-	for _, testCase := range testCases {
-		data, err := tc.Decode(testCase.token)
+	for _, test := range tests {
+		data, err := tok.UnsealString(test.token)
 		if err != nil {
-			t.Errorf("Decode(%s) returned non-nil error: %s", testCase.token, err)
+			t.Errorf("Unseal(%q) = %s", test.token, err)
 			continue
 		}
-		if string(data) != testCase.data {
-			t.Errorf("Decode(%s) returned %s; expected %s", testCase.token, data, testCase.data)
+		if string(data) != test.data {
+			t.Errorf("Unseal(%q) = %q; expected %q", test.token, data, test.data)
 			continue
 		}
 	}
 }
 
-// TestDecodeExpiredToken tests that Decode returns errTokenExpired
+// TestUnsealExpiredToken tests that Unseal returns errTokenExpired
 // if the token is older than its ttl.
-func TestDecodeExpiredToken(t *testing.T) {
-	t.Parallel()
-
+func TestUnsealExpiredToken(t *testing.T) {
 	setNow(time.Unix(1, 0))
 	defer restoreNow()
 
-	tc, err := NewTokener(key, ttl, sha1.New, aes.NewCipher)
+	tok, err := NewTokener(key, ttl)
 	data := []byte("data")
-	token, err := tc.Encode(data)
+	token, err := tok.Seal(data)
 	if err != nil {
-		t.Fatalf("Encode(%s) returned non-nil error: %s", data, err)
+		t.Fatalf("Seal(%q) returned non-nil error: %s", data, err)
 	}
 
 	setNow(timeNow().Add(ttl + 1*time.Nanosecond))
 
-	decodedData, err := tc.Decode(token)
-	if decodedData != nil || err != errTokenExpired {
-		t.Fatalf("Decode(%s) returned '%s', %s; expected '', %s", token, decodedData, err, errTokenExpired)
+	unsealed, err := tok.Unseal(token)
+	if unsealed != nil || err != errTokenExpired {
+		t.Fatalf("Unseal(%q) = %q, %s; expected <nil>, %s", token, unsealed, err, errTokenExpired)
 	}
 }
 
-// TestDecodeInvalidToken tests that Decode returns
+// TestUnsealInvalidToken tests that Unseal returns
 // errTokenInvalid for invalid tokens.
-func TestDecodeInvalidToken(t *testing.T) {
-	t.Parallel()
-
+func TestUnsealInvalidToken(t *testing.T) {
 	setNow(time.Unix(1, 0))
 	defer restoreNow()
-
-	tc, err := NewTokener(key, ttl, sha1.New, aes.NewCipher)
+	tok, err := NewTokener(key, ttl)
 	if err != nil {
-		t.Fatal(err.Error())
+		t.Fatal(err)
 	}
 
 	tokens := []string{
@@ -158,60 +143,56 @@ func TestDecodeInvalidToken(t *testing.T) {
 		" ",
 		base64.URLEncoding.EncodeToString([]byte(" ")),
 		"asdf",
-		"fk6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ==",
-		" Fk6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ==",
-		"Fk6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ==   ",
-		"k6AjyatL5P3jJs3kaQ0Sc5ZbAHx_0NaZtRieQ==",
+		"aQDKmjsAAAAAUkrn3yLQAVDgkYlomzNsFRtslbo=",
+		"AQDKmjsAAAAAUkrn3yLQAVDgkYlomzNsFRtslbo",
+		"QDKmjsAAAAAUkrn3yLQAVDgkYlomzNsFRtslbo=",
+		" AQDKmjsAAAAAUkrn3yLQAVDgkYlomzNsFRtslbo=",
+		"AQDKmjsAAAAAUkrn3yLQAVDgkYlomzNsFRtslbo= ",
 	}
 	for _, token := range tokens {
-		data, err := tc.Decode(token)
+		data, err := tok.Unseal([]byte(token))
 		if data != nil || err == nil {
-			t.Errorf("Decode(%s) returned %s,%s; expected nil,non-nil", token, data, err)
+			t.Errorf("Unseal(%q) = %q, %s; expected nil, error", token, data, err)
 			continue
+		}
+	}
+}
+
+func BenchmarkNewTokener(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		if _, err := NewTokener(key, ttl); err != nil {
+			b.Fatal(err)
 		}
 	}
 }
 
 var benchmarkData = []byte("firstname.lastname@example.com")
 
-func BenchmarkAESWithMD5(b *testing.B) {
-	key := []byte("1111111122222222")
-	doBenchmark(b, key, md5.New, aes.NewCipher)
-}
-
-func BenchmarkAESWithSHA1(b *testing.B) {
-	key := []byte("1111111122222222")
-	doBenchmark(b, key, sha1.New, aes.NewCipher)
-}
-
-func BenchmarkDESWithMD5(b *testing.B) {
-	key := []byte("12345678")
-	doBenchmark(b, key, md5.New, des.NewCipher)
-}
-
-func BenchmarkDESWithSHA1(b *testing.B) {
-	key := []byte("12345678")
-	doBenchmark(b, key, sha1.New, des.NewCipher)
-}
-
-func BenchmarkTripleDESWithMD5(b *testing.B) {
-	key := []byte("111111112222222233333333")
-	doBenchmark(b, key, md5.New, des.NewTripleDESCipher)
-}
-
-func BenchmarkTripleDESWithSHA1(b *testing.B) {
-	key := []byte("111111112222222233333333")
-	doBenchmark(b, key, sha1.New, des.NewTripleDESCipher)
-}
-
-func doBenchmark(b *testing.B, key []byte, hashFunc HashFunc, cipherFunc CipherFunc) {
-	tc, err := NewTokener(key, ttl, hashFunc, cipherFunc)
+func BenchmarkSeal(b *testing.B) {
+	tok, err := NewTokener(key, ttl)
 	if err != nil {
-		b.Fatal(err.Error())
+		b.Fatal(err)
 	}
-
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := tc.Encode(benchmarkData); err != nil {
+		if _, err := tok.Seal(benchmarkData); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkUnseal(b *testing.B) {
+	tok, err := NewTokener(key, ttl)
+	if err != nil {
+		b.Fatal(err)
+	}
+	sealed, err := tok.Seal(benchmarkData)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := tok.Unseal(sealed); err != nil {
 			b.Fatal(err)
 		}
 	}

@@ -15,38 +15,34 @@ Example
 
 Short snippet:
 	
-	package main
+```go
+package main
 
-	import (
-		"crypto/aes"
-		"crypto/sha1"
-		"fmt"
-		"time"
+import (
+	"fmt"
+	"github.com/nicksnyder/go-securetoken/securetoken"
+	"time"
+)
 
-		"github.com/nicksnyder/go-securetoken/securetoken"
-	)
-
-	func main() {
-		key := []byte("1234567887654321")
-		tokener, err := securetoken.NewTokener(key, 24*time.Hour, sha1.New, aes.NewCipher)
-		if err != nil {
-			panic(err)
-		}
-
-		token, err := tokener.Encode([]byte("secretuserid"))
-		if err != nil {
-			panic(err)
-		}
-
-		data, err := tokener.Decode(token)
-		if err != nil {
-			panic(err)
-		}
-
-		fmt.Printf("data: %s\n", data)
+func main() {
+	key := []byte("1111111111111111")
+	tok, err := securetoken.NewTokener(key, 1*time.Minute)
+	if err != nil {
+		panic(err)
 	}
+	sealed, err := tok.SealString("hello world")
+	if err != nil {
+		panic(err)
+	}
+	unsealed, err := tok.UnsealString(sealed)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(unsealed)
+}
+```
 
-Complete example:
+Web demo:
 
 	cd example/
 	go run main.go

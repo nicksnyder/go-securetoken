@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/aes"
-	"crypto/sha1"
 	"html/template"
 	"log"
 	"net/http"
@@ -21,7 +19,7 @@ func main() {
 	http.HandleFunc("/logout", handleLogout)
 
 	var err error
-	tokener, err = securetoken.NewTokener(unsafeKey, 24*time.Hour, sha1.New, aes.NewCipher)
+	tokener, err = securetoken.NewTokener(unsafeKey, 24*time.Hour)
 	if err != nil {
 		panic(err)
 	}
@@ -57,7 +55,7 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 		homeTemplate.Execute(w, nil)
 		return
 	}
-	email, err := tokener.Decode(c.Value)
+	email, err := tokener.UnsealString(c.Value)
 	if err != nil {
 		panic(err)
 	}
@@ -69,7 +67,7 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	email := r.FormValue("email")
-	token, err := tokener.Encode([]byte(email))
+	token, err := tokener.SealString(email)
 	if err != nil {
 		panic(err)
 	}

@@ -3,140 +3,147 @@
 package securetoken
 
 import (
+	"crypto/aes"
 	"crypto/cipher"
-	"crypto/hmac"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
-	"hash"
 	"io"
 	"time"
 )
 
+var sealVersion uint8 = 1
+
 // Alias time.Now for testability.
 var timeNow = time.Now
-
-// A Tokener encodes and decodes tokens.
-// It is goroutine safe.
-type Tokener struct {
-	key      []byte
-	ttl      time.Duration
-	hashFunc HashFunc
-	block    cipher.Block
-}
-
-// CipherFunc returns a new cipher.Block
-// that uses key for encryption and decryption.
-// For example: aes.NewCipher, des.NewCipher
-type CipherFunc func(key []byte) (cipher.Block, error)
-
-// HashFunc returns a new hash.Hash that will be used to create a HMAC.
-type HashFunc func() hash.Hash
-
-// NewTokener returns a new Tokener.
-// key is the cryptographic key used to encrypt and sign token data.
-// ttl is the duration after which an issued token becomes invalid.
-// hashFunc is the hash function used to create a HMAC of the token data.
-// cipherFunc is the cipher function used to encrypt and decrypt token data.
-func NewTokener(key []byte, ttl time.Duration, hashFunc HashFunc, cipherFunc CipherFunc) (*Tokener, error) {
-	block, err := cipherFunc(key)
-	if err != nil {
-		return nil, err
-	}
-	return &Tokener{
-		key:      key,
-		ttl:      ttl,
-		hashFunc: hashFunc,
-		block:    block,
-	}, nil
-}
-
-// Encode encodes data into a secure token of the following format:
-// Base64Encode(iv + Encrypt(HMAC(timestamp + data) + timestamp + data))
-func (t *Tokener) Encode(data []byte) (string, error) {
-	ivSize := t.block.BlockSize()
-	h := hmac.New(t.hashFunc, t.key)
-	macSize := h.Size()
-
-	// Prepare a buffer than can fit the iv, mac,
-	// timestamp, and data (in that order).
-	token := make([]byte, ivSize+macSize+8+len(data))
-
-	// Generate the iv.
-	iv := token[:ivSize]
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		return "", err
-	}
-
-	// Set the timestamp.
-	ts := token[ivSize+macSize : ivSize+macSize+8]
-	now := timeNow().UnixNano()
-	binary.LittleEndian.PutUint64(ts, uint64(now))
-
-	// Set the data.
-	copy(token[ivSize+macSize+8:], data)
-
-	// Compute the HMAC of the timestamp and data.
-	h.Write(token[ivSize+macSize:])
-	h.Sum(token[ivSize:ivSize])
-
-	// Encrypt the token (excluding the iv).
-	plaintext := token[ivSize:]
-	stream := cipher.NewCFBEncrypter(t.block, iv)
-	stream.XORKeyStream(plaintext, plaintext)
-
-	// Return the encoded token.
-	return base64.URLEncoding.EncodeToString(token), nil
-}
 
 var (
 	errTokenInvalid = errors.New("securetoken: token invalid")
 	errTokenExpired = errors.New("securetoken: token expired")
 )
 
-// Decode returns the data encoded in token.
-// It returns an error if token is invalid or if token is older than its ttl.
-func (t *Tokener) Decode(token string) ([]byte, error) {
-	// Decode the token.
-	ivct, err := base64.URLEncoding.DecodeString(token)
+// A Tokener encodes and decodes tokens.
+// It is goroutine safe.
+type Tokener struct {
+	aead     cipher.AEAD
+	encoding *base64.Encoding
+	ttl      time.Duration
+}
+
+// NewTokener returns a Tokener that seals and unseals tokens.
+// key is a cryptographic key that must be either 16, 24, or 32 bytes.
+// ttl is the duration that tokens are valid.
+func NewTokener(key []byte, ttl time.Duration) (*Tokener, error) {
+	c, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
+	aead, err := cipher.NewGCM(c)
+	if err != nil {
+		return nil, err
+	}
+	return &Tokener{aead, base64.URLEncoding, ttl}, nil
+}
 
-	// Verify token is at least the minimum size.
-	ivSize := t.block.BlockSize()
-	h := hmac.New(t.hashFunc, t.key)
-	macSize := h.Size()
-	if len(ivct) < ivSize+macSize+8 {
+// SealString is similar to Seal except its input is a string
+// and it returns a string.
+func (t *Tokener) SealString(plaintext string) (string, error) {
+	tok, err := t.Seal([]byte(plaintext))
+	return string(tok), err
+}
+
+// Seal encrypts plaintext in a way that provides confidentiality,
+// data integrity, and expiration.
+func (t *Tokener) Seal(plaintext []byte) ([]byte, error) {
+	tok := make([]byte, 0, t.sealedLength(plaintext, false))
+	tok = append(tok, sealVersion)
+	tok, err := t.appendNonce(tok)
+	if err != nil {
+		return nil, err
+	}
+	tok = t.aead.Seal(tok, tok[1:], plaintext, nil)
+	return t.encode(tok), nil
+}
+
+// UnsealString is similar to Unseal except its input is a string
+// and it returns a string.
+func (t *Tokener) UnsealString(encoded string) (string, error) {
+	buf, err := t.Unseal([]byte(encoded))
+	return string(buf), err
+}
+
+// Unseal decrypts and verifies the ciphertext produced by Seal.
+// It returns an error if sealed bytes are invalid or if the
+// timestamp is older than the ttl.
+func (t *Tokener) Unseal(sealed []byte) ([]byte, error) {
+	decoded, err := t.decode(sealed)
+	if err != nil {
+		return nil, err
+	}
+	if len(decoded) < t.sealedLength(nil, false) {
 		return nil, errTokenInvalid
 	}
-
-	// Unpack the iv and ciphertext.
-	iv := ivct[:ivSize]
-	ciphertext := ivct[ivSize:]
-
-	// Decrypt the ciphertext.
-	stream := cipher.NewCFBDecrypter(t.block, iv)
-	stream.XORKeyStream(ciphertext, ciphertext)
-	plaintext := ciphertext
-
-	// Unpack the token data.
-	mac := plaintext[:macSize]
-	ts := int64(binary.LittleEndian.Uint64(plaintext[macSize : macSize+8]))
-	data := plaintext[macSize+8:]
-
-	// Compute the HMAC of the timestamp and data and verify
-	// that it matches the mac in the token.
-	h.Write(plaintext[macSize:])
-	if !hmac.Equal(mac, h.Sum(nil)) {
+	ver, nc := decoded[0], decoded[1:]
+	if ver != 1 {
 		return nil, errTokenInvalid
 	}
+	nonce, ciphertext := nc[:t.aead.NonceSize()], nc[t.aead.NonceSize():]
+	ts := getTimestamp(nonce)
+	if err := t.checkTTL(ts); err != nil {
+		return nil, err
+	}
+	return t.aead.Open(nil, nonce, ciphertext, nil)
+}
 
-	// Verify the timestamp.
+// sealedLength returns the number of bytes required to seal plaintext.
+func (t *Tokener) sealedLength(plaintext []byte, encoded bool) int {
+	length := 1 + t.aead.NonceSize() + len(plaintext) + t.aead.Overhead()
+	if encoded {
+		length = t.encoding.EncodedLen(length)
+	}
+	return length
+}
+
+// appendNonce appends a nonce to dst and returns the new slice.
+func (t *Tokener) appendNonce(dst []byte) ([]byte, error) {
+	nonce := dst[len(dst) : len(dst)+t.aead.NonceSize()]
+	putTimestamp(nonce[:8])
+	err := putRandom(nonce[8:])
+	return dst[:len(dst)+t.aead.NonceSize()], err
+}
+
+func putTimestamp(dst []byte) {
+	now := timeNow().UnixNano()
+	binary.LittleEndian.PutUint64(dst, uint64(now))
+}
+
+func getTimestamp(buf []byte) int64 {
+	return int64(binary.LittleEndian.Uint64(buf[:8]))
+}
+
+// putRandom fills dst with random bytes.
+func putRandom(dst []byte) error {
+	_, err := io.ReadFull(rand.Reader, dst)
+	return err
+}
+
+func (t *Tokener) encode(src []byte) []byte {
+	buf := make([]byte, t.encoding.EncodedLen(len(src)))
+	t.encoding.Encode(buf, src)
+	return buf
+}
+
+func (t *Tokener) decode(src []byte) ([]byte, error) {
+	buf := make([]byte, t.encoding.DecodedLen(len(src)))
+	n, err := t.encoding.Decode(buf, src)
+	return buf[:n], err
+}
+
+// checkTTL returns an error if ts older than the ttl.
+func (t *Tokener) checkTTL(ts int64) error {
 	if timeNow().Add(-t.ttl).UnixNano() > ts {
-		return nil, errTokenExpired
+		return errTokenExpired
 	}
-
-	return data, nil
+	return nil
 }
